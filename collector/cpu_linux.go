@@ -32,6 +32,7 @@ import (
 type cpuCollector struct {
 	fs                 procfs.FS
 	cpu                *prometheus.Desc
+	cpuNum             *prometheus.Desc //增加cpu总个数指标
 	cpuInfo            *prometheus.Desc
 	cpuFlagsInfo       *prometheus.Desc
 	cpuBugsInfo        *prometheus.Desc
@@ -65,6 +66,12 @@ func NewCPUCollector(logger log.Logger) (Collector, error) {
 	c := &cpuCollector{
 		fs:  fs,
 		cpu: nodeCPUSecondsDesc,
+		// 增加cpu总个数指标
+		cpuNum: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "cpu_num"),
+			"CPU total num",
+			nil, nil,
+		),
 		cpuInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "info"),
 			"CPU information from /proc/cpuinfo.",
@@ -80,10 +87,11 @@ func NewCPUCollector(logger log.Logger) (Collector, error) {
 			"The `bugs` field of CPU information from /proc/cpuinfo.",
 			[]string{"bug"}, nil,
 		),
+		// 去除cpu标签
 		cpuGuest: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "guest_seconds_total"),
 			"Seconds the CPUs spent in guests (VMs) for each mode.",
-			[]string{"cpu", "mode"}, nil,
+			[]string{"mode"}, nil,
 		),
 		cpuCoreThrottle: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, cpuCollectorSubsystem, "core_throttles_total"),
@@ -281,7 +289,8 @@ func (c *cpuCollector) updateStat(ch chan<- prometheus.Metric) error {
 	// Acquire a lock to read the stats.
 	c.cpuStatsMutex.Lock()
 	defer c.cpuStatsMutex.Unlock()
-	for cpuID, cpuStat := range c.cpuStats {
+	// 修改，seconds_total只取所有cpu的统计值
+	/*for cpuID, cpuStat := range c.cpuStats {
 		cpuNum := strconv.Itoa(cpuID)
 		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.User, cpuNum, "user")
 		ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuStat.Nice, cpuNum, "nice")
@@ -295,7 +304,48 @@ func (c *cpuCollector) updateStat(ch chan<- prometheus.Metric) error {
 		// Guest CPU is also accounted for in cpuStat.User and cpuStat.Nice, expose these as separate metrics.
 		ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuStat.Guest, cpuNum, "user")
 		ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuStat.GuestNice, cpuNum, "nice")
+	}*/
+	cpuUser := 0.0
+	cpuNice := 0.0
+	cpuSystem := 0.0
+	cpuIdle := 0.0
+	cpuIowait := 0.0
+	cpuIRQ := 0.0
+	cpuSoftIRQ := 0.0
+	cpuSteal := 0.0
+	cpuGuest := 0.0
+	cpuGuestNice := 0.0
+	cpuNum := float64(len(c.cpuStats))
+	for _, cpuStat := range c.cpuStats {
+		cpuUser += cpuStat.User / cpuNum
+		cpuNice += cpuStat.Nice / cpuNum
+		cpuSystem += cpuStat.System / cpuNum
+		cpuIdle += cpuStat.Idle / cpuNum
+		cpuIowait += cpuStat.Iowait / cpuNum
+		cpuIRQ += cpuStat.IRQ / cpuNum
+		cpuSoftIRQ += cpuStat.SoftIRQ / cpuNum
+		cpuSteal += cpuStat.Steal / cpuNum
+
+		// Guest CPU is also accounted for in cpuStat.User and cpuStat.Nice, expose these as separate metrics.
+		cpuGuest += cpuStat.Guest / cpuNum
+		cpuGuestNice += cpuStat.GuestNice / cpuNum
 	}
+
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuUser, "user")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuNice, "nice")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuSystem, "system")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuIdle, "idle")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuIowait, "iowait")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuIRQ, "irq")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuSoftIRQ, "softirq")
+	ch <- prometheus.MustNewConstMetric(c.cpu, prometheus.CounterValue, cpuSteal, "steal")
+
+	// Guest CPU is also accounted for in cpuStat.User and cpuStat.Nice, expose these as separate metrics.
+	ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuGuest, "user")
+	ch <- prometheus.MustNewConstMetric(c.cpuGuest, prometheus.CounterValue, cpuGuestNice, "nice")
+
+	// cpu个数
+	ch <- prometheus.MustNewConstMetric(c.cpuNum, prometheus.GaugeValue, cpuNum)
 
 	return nil
 }
