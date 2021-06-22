@@ -254,7 +254,10 @@ func (c *textFileCollector) processFile(name string, ch chan<- prometheus.Metric
 
 	for _, mf := range families {
 		if mf.Help == nil {
-			help := fmt.Sprintf("Metric read from %s", path)
+			//因为help信息包含了文件名，导致相同指标名和标签的指标，不能出现在两个文件中，否则在处理指标时会被判定desc信息不一致，被忽略
+			//help := fmt.Sprintf("Metric read from %s", path)
+			//修改后的help信息：只显示从文件采集
+			help := fmt.Sprintf("Metric read from textfile")
 			mf.Help = &help
 		}
 	}
