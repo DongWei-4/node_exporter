@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !notextfile
 // +build !notextfile
 
 package collector
@@ -182,7 +183,7 @@ func (c *textFileCollector) exportMTimes(mtimes map[string]time.Time, ch chan<- 
 		if c.mtime != nil {
 			mtime = *c.mtime
 		}
-		ch <- prometheus.MustNewConstMetric(mtimeDesc, prometheus.GaugeValue, mtime, filename)
+		ch <- prometheus.MustNewConstMetric(mtimeDesc, prometheus.GaugeValue, mtime, strings.TrimSuffix(filename, ".prom"))
 	}
 }
 
@@ -207,6 +208,7 @@ func (c *textFileCollector) Update(ch chan<- prometheus.Metric) error {
 		if err != nil {
 			errored = true
 			level.Error(c.logger).Log("msg", "failed to collect textfile data", "file", f.Name(), "err", err)
+			mtimes[f.Name()] = time.Time{}
 			continue
 		}
 
